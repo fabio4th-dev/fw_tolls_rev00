@@ -87,10 +87,10 @@
             gap: 20px;
             position: relative;
             z-index: 1;
-            align-items: center; /* Adiciona alinhamento vertical */
-            justify-content: center; /* Centraliza os itens */
+            align-items: center;
+            justify-content: center;
             margin-top: 8px;
-            flex-wrap: nowrap; /* Impede quebra de linha */
+            flex-wrap: nowrap;
         }
         
         .info-item {
@@ -775,7 +775,7 @@
             <!-- Logo Delservin - COM MARGEM NEGATIVA PARA ESQUERDA -->
             <div style="width: 120px; height: 50px; 
                        display: flex; align-items: center; justify-content: center;
-                       margin-right: 100px;"> <!-- ISSO MOVE PARA ESQUERDA -->
+                       margin-right: 100px;">
                 <img src="Delservin Logo.png" 
                      alt="Delservin Logo" 
                      style="width: 100%; height: 100%; object-fit: contain;">
@@ -784,7 +784,7 @@
             <!-- Logo Altercon -->
             <div style="width: 100px; height: 60px; 
                        display: flex; align-items: center; justify-content: center;
-                       margin-right: 150px;"> <!-- ISSO MOVE PARA ESQUERDA -->
+                       margin-right: 150px;">
                 <img src="Altercon Logo.png" 
                      alt="Altercon Logo" 
                      style="width: 100%; height: 100%; object-fit: contain;">
@@ -945,12 +945,13 @@
                                 <label for="toolLocation" class="required">Localização</label>
                                 <select id="toolLocation" required>
                                     <option value="">Selecione uma localização</option>
-                                    <option value="Armazém 1">Armazém 1</option>
-                                    <option value="Armazém 2">Armazém 2</option>
+                                    <option value="Container Elétrica">Container Elétrica</option>
+                                    <option value="Container Mecânica">Container Mecânica</option>
                                     <option value="Oficina">Oficina</option>
                                     <option value="Campo">Campo</option>
-                                    <option value="Veículo 1">Veículo 1</option>
-                                    <option value="Veículo 2">Veículo 2</option>
+                                    <option value="Caminhão">Caminhão</option>
+                                    <option value="Kombi">Kombi</option>
+                                    <option value="Escritório">Escritório</option>
                                 </select>
                                 <div class="error-message" id="toolLocationError">Selecione uma localização</div>
                             </div>
@@ -1151,7 +1152,7 @@ CREATE TABLE tools (
     category VARCHAR(100) NOT NULL,
     status VARCHAR(50) NOT NULL,
     location VARCHAR(100) NOT NULL,
-    condition VARCHAR(50) NOT NULL,
+    tool_condition VARCHAR(50) NOT NULL,
     description TEXT,
     observations TEXT,
     image_url TEXT,
@@ -1963,48 +1964,66 @@ CREATE TABLE tools (
                 }
             }
             
-            // Excluir ferramenta
+            // FUNÇÃO CORRIGIDA: Excluir ferramenta
             async function deleteTool(toolId) {
                 if (!confirm('Tem certeza que deseja excluir esta ferramenta?')) {
                     return;
                 }
                 
+                // Buscar ferramenta por ID local
                 const tool = tools.find(t => t.id === toolId);
-                if (!tool) return;
-                
-                // Excluir online se estiver conectado
-                if (isOnlineMode && supabaseClient && tool.code) {
-                    await deleteToolFromSupabase(tool.code);
+                if (!tool) {
+                    showNotification('Ferramenta não encontrada!', 'error');
+                    return;
                 }
                 
-                // Remover ferramenta da lista local
-                tools = tools.filter(tool => tool.id !== toolId);
+                const toolCode = tool.code; // Usar código como identificador único
                 
-                // Salvar localmente
+                // 1. Apagar LOCALMENTE (usando ID)
+                tools = tools.filter(t => t.id !== toolId);
                 localStorage.setItem('tools', JSON.stringify(tools));
                 
-                // Atualizar estatísticas
+                // 2. Apagar do SUPABASE (se estiver online)
+                if (isOnlineMode && supabaseClient && toolCode) {
+                    try {
+                        const { data, error } = await supabaseClient
+                            .from('tools')
+                            .delete()
+                            .eq('code', toolCode); // Usar código no Supabase
+                        
+                        if (error) {
+                            console.error('Erro ao apagar do Supabase:', error);
+                            showNotification('Ferramenta apagada localmente, mas erro na nuvem.', 'warning');
+                        } else {
+                            showNotification('Ferramenta apagada localmente e na nuvem!', 'success');
+                        }
+                    } catch (error) {
+                        console.error('Erro na conexão com Supabase:', error);
+                        showNotification('Ferramenta apagada localmente (sem conexão com nuvem).', 'warning');
+                    }
+                } else {
+                    showNotification('Ferramenta apagada localmente!', 'success');
+                }
+                
+                // 3. Atualizar interface
                 updateHeaderStats();
                 updateStatistics();
                 loadToolsList();
-                
-                // Mostrar notificação
-                showNotification('Ferramenta excluída com sucesso!', 'success');
             }
             
-            // Excluir ferramenta do Supabase
+            // FUNÇÃO CORRIGIDA: Excluir ferramenta do Supabase
             async function deleteToolFromSupabase(toolCode) {
                 try {
                     const { data, error } = await supabaseClient
                         .from('tools')
                         .delete()
-                        .eq('code', toolCode);
+                        .eq('code', toolCode); // Usar código para deletar
                     
                     if (error) throw error;
+                    
                     return true;
                 } catch (error) {
                     console.error('Erro ao excluir do Supabase:', error);
-                    showNotification('Erro ao excluir da nuvem. Dados excluídos localmente.', 'warning');
                     return false;
                 }
             }
@@ -2122,7 +2141,7 @@ CREATE TABLE tools (
                     errorCount === 0 ? 'success' : 'warning');
             }
             
-            // Sincronizar dados da nuvem para local
+            // FUNÇÃO CORRIGIDA: Sincronizar dados da nuvem para local
             async function syncFromCloud() {
                 if (!supabaseClient) {
                     showNotification('Configure o banco de dados online primeiro', 'error');
@@ -2138,15 +2157,15 @@ CREATE TABLE tools (
                     
                     if (error) throw error;
                     
-                    // Converter para o formato local
+                    // CORREÇÃO: Manter o ID original do Supabase
                     const convertedTools = cloudTools.map(tool => ({
-                        id: Date.now() + Math.random(), // Novo ID local
+                        id: tool.id, // ✅ USA o ID do Supabase, não cria novo
                         name: tool.name,
                         code: tool.code,
                         category: tool.category,
                         status: tool.status,
                         location: tool.location,
-                        tool_condition: tool.condition,
+                        condition: tool.tool_condition,
                         description: tool.description,
                         observations: tool.observations,
                         image: tool.image_url,
@@ -2154,15 +2173,8 @@ CREATE TABLE tools (
                         updatedAt: tool.updated_at
                     }));
                     
-                    // Adicionar ou substituir ferramentas locais
-                    for (const cloudTool of convertedTools) {
-                        const localIndex = tools.findIndex(t => t.code === cloudTool.code);
-                        if (localIndex >= 0) {
-                            tools[localIndex] = cloudTool;
-                        } else {
-                            tools.push(cloudTool);
-                        }
-                    }
+                    // Substituir todas as ferramentas locais
+                    tools = convertedTools;
                     
                     // Salvar localmente
                     localStorage.setItem('tools', JSON.stringify(tools));
@@ -2343,9 +2355,6 @@ CREATE TABLE tools (
             if (dbConfig.url && dbConfig.key) {
                 setupSupabaseClient();
             }
-            
-            // Resto dos event listeners permanece igual...
-            // (Os mesmos event listeners do código anterior para formulário, imagens, etc.)
             
             // Botão para capturar imagem
             document.getElementById('captureImageBtn').addEventListener('click', function() {
